@@ -1,0 +1,6 @@
+/* Preserve the shared web design, adding only native insets and demo context. */
+body { padding-top: env(safe-area-inset-top); padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
+.demo-banner { padding: 6px 16px; background: var(--primary); color: white; font-size: 12px; text-align: center; }
+.local-loading { padding: 32px; text-align: center; }
+.app-bottom-nav { padding-bottom: max(8px, env(safe-area-inset-bottom)); }
+@media (max-width: 900px) { .dashboard-page { padding-bottom: calc(100px + env(safe-area-inset-bottom)); } }
