@@ -10,3 +10,24 @@ ios/App/Pods/
 ios/App/build/
 ios/App/App/public/
 android/app/src/main/assets/public/
+
+# Local logs and operating-system files
+*.log
+.DS_Store
+Thumbs.db
+
+# Signing credentials (keep outside version control)
+*.jks
+*.keystore
+keystore.properties
+key.properties
+*.p12
+*.p8
+*.mobileprovision
+
+# Native build/export output, including exports outside platform directories
+*.apk
+*.aab
+*.ipa
+*.xcarchive/
+*.dSYM/
