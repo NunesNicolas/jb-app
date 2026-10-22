@@ -1,30 +1,85 @@
 import type { StorageAdapter } from './storage';
 
 // This adapter preserves the JSON contract used by the shared web screens.
-// Production synchronization and multi-user authorization are not part of the local demo.
+// All operations are local; there is no authentication or remote synchronization.
 type Row = Record<string, any>;
 type Collection = 'works' | 'tasks' | 'expenses' | 'revenues' | 'groups' | 'attachments' | 'work-events' | 'notifications';
-type State = { version: 1; user: Row; tables: Record<Collection, Row[]> };
+type State = { version: 2; user: Row; tables: Record<Collection, Row[]> };
 const collections: Collection[] = ['works', 'tasks', 'expenses', 'revenues', 'groups', 'attachments', 'work-events', 'notifications'];
 export class LocalApiError extends Error {
   constructor(message: string, public statusCode = 400) { super(message); }
 }
 
-function seed(): State {
+function emptyState(): State {
   const now = new Date().toISOString();
-  const user = { uuid: 'local-demo', name: 'Demonstração JB', email: 'demo@jb.local', phone: '', profile: 'admin', createdAt: now, updatedAt: now };
-  const base = { ownerUserUuid: user.uuid, createdAt: now, updatedAt: now };
-  const work = { ...base, uuid: 'obra-demo', name: 'Residencial Jardim — Demo', address: 'São Paulo, SP', latitude: -23.55052, longitude: -46.633308, estimatedPrice: 350000, finalBudget: 300000, coverImageUrl: '', status: 'in_progress' };
+  const user = { uuid: crypto.randomUUID(), name: 'Neste aparelho', email: '', phone: '', profile: 'admin', createdAt: now, updatedAt: now };
   return {
-    version: 1, user,
+    version: 2, user,
     tables: {
-      works: [work],
-      tasks: [{ ...base, uuid: 'tarefa-demo', workUuid: work.uuid, workName: work.name, title: 'Conferir materiais da obra', description: 'Tarefa de demonstração. Você pode editar, mover e excluir.', assignee: 'Equipe JB', dueDate: now.slice(0, 10), status: 'todo', priority: 'medium', position: 0 }],
-      expenses: [{ ...base, uuid: 'despesa-demo', workUuid: work.uuid, type: 'material', name: 'Materiais iniciais', description: 'Valor fictício da demo', amount: 12500, uploadUrl: '' }],
+      works: [], tasks: [], expenses: [],
       revenues: [], groups: [], attachments: [], notifications: [],
-      'work-events': [{ ...base, uuid: 'evento-demo', workUuid: work.uuid, type: 'work_created', title: 'Obra de demonstração criada', description: 'Dados locais, sem conexão com o servidor.' }],
+      'work-events': [],
     },
   };
+}
+
+function validateRecord(collection: Collection, row: Row) {
+  const requireText = (key: string) => {
+    if (typeof row[key] !== 'string' || !row[key].trim()) throw new LocalApiError(`Preencha o campo ${key}.`);
+  };
+  const oneOf = (key: string, values: string[]) => { if (!values.includes(row[key])) throw new LocalApiError(`Valor inválido para ${key}.`); };
+  const numeric = (key: string, min: number, max = Number.MAX_SAFE_INTEGER) => {
+    if (typeof row[key] !== 'number' || !Number.isFinite(row[key]) || row[key] < min || row[key] > max) throw new LocalApiError(`Valor inválido para ${key}.`);
+  };
+  for (const key of ['description', 'address', 'assignee', 'name', 'title', 'uploadUrl', 'coverImageUrl', 'originalName']) {
+    if (row[key] !== undefined && typeof row[key] !== 'string') throw new LocalApiError(`Texto inválido para ${key}.`);
+  }
+  if (['works', 'groups', 'expenses', 'revenues'].includes(collection)) requireText('name');
+  if (collection === 'works') {
+    requireText('address'); numeric('latitude', -90, 90); numeric('longitude', -180, 180);
+    numeric('estimatedPrice', 0); numeric('finalBudget', 0);
+    oneOf('status', ['planning', 'in_progress', 'paused', 'completed', 'cancelled']);
+  }
+  if (collection === 'tasks') {
+    requireText('title'); numeric('position', 0);
+    oneOf('status', ['backlog', 'todo', 'in_progress', 'review', 'done']);
+    oneOf('priority', ['low', 'medium', 'high', 'critical']);
+  }
+  if (collection === 'expenses' || collection === 'revenues') {
+    requireText('workUuid'); numeric('amount', Number.MIN_VALUE);
+    oneOf('type', collection === 'expenses' ? ['material', 'labor', 'marketing', 'documentation'] : ['sale', 'rent', 'other']);
+  }
+  for (const key of ['dueDate', 'receivedAt']) {
+    if (row[key] != null && (typeof row[key] !== 'string' || !Number.isFinite(Date.parse(row[key])))) throw new LocalApiError(`Data inválida para ${key}.`);
+  }
+  if (collection === 'attachments') {
+    requireText('originalName'); requireText('publicUrl');
+    if (!/^data:(image\/(png|jpeg|webp|gif)|application\/pdf);base64,[A-Za-z0-9+/]*={0,2}$/.test(row.publicUrl)) throw new LocalApiError('Anexo local inválido.');
+  }
+}
+
+function parseState(value: unknown, checkRecords = false): State {
+  const state = value as State;
+  if (!state || ![1, 2].includes(state.version) || !state.user || typeof state.user.uuid !== 'string' || !collections.every(key => Array.isArray(state.tables?.[key]))) {
+    throw new Error('Banco local incompatível. Os dados foram preservados.');
+  }
+  const migrated = structuredClone(state);
+  migrated.version = 2;
+  // Retain identity and every existing record, including edits made in the earlier build.
+  migrated.user = { ...migrated.user, name: 'Neste aparelho', email: '', profile: 'admin' };
+  if (checkRecords) {
+    for (const collection of collections) {
+      const ids = new Set<string>();
+      for (const row of migrated.tables[collection]) {
+        if (!row || typeof row.uuid !== 'string' || !row.uuid || ids.has(row.uuid) || row.ownerUserUuid !== migrated.user.uuid || !Number.isFinite(Date.parse(row.createdAt))) throw new Error('Backup contém registros inválidos ou duplicados.');
+        ids.add(row.uuid);
+        validateRecord(collection, row);
+        if (row.workUuid && !migrated.tables.works.some(work => work.uuid === row.workUuid)) throw new Error('Backup contém referência a uma obra inexistente.');
+        if (collection === 'groups' && (!Array.isArray(row.members) || !Array.isArray(row.works) || row.works.some((work: Row) => !migrated.tables.works.some(existing => existing.uuid === work.uuid)))) throw new Error('Empresa inválida no backup.');
+      }
+    }
+  }
+  return migrated;
 }
 
 export class LocalStore {
@@ -35,14 +90,32 @@ export class LocalStore {
     const raw = await this.storage.read();
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (parsed.version !== 1 || !parsed.user || !collections.every(key => Array.isArray(parsed.tables?.[key]))) {
-        throw new Error('Banco local incompatível. Os dados foram preservados.');
-      }
-      this.state = parsed;
+      this.state = parseState(parsed);
+      if (parsed.version !== 2) await this.storage.write(JSON.stringify(this.state));
     } else {
-      this.state = seed();
+      this.state = emptyState();
       await this.storage.write(JSON.stringify(this.state));
     }
+  }
+  async exportBackup(): Promise<string> {
+    await this.queue;
+    return JSON.stringify({ format: 'jb-local-backup', version: 1, exportedAt: new Date().toISOString(), state: this.state });
+  }
+  inspectBackup(text: string) {
+    const backup = JSON.parse(text);
+    if (backup?.format !== 'jb-local-backup' || backup.version !== 1) throw new Error('Selecione um backup exportado pelo JB.');
+    const state = parseState(backup.state, true);
+    return Object.fromEntries(collections.map(key => [key, state.tables[key].length]));
+  }
+  restoreBackup(text: string): Promise<void> {
+    const job = this.queue.then(async () => {
+      this.inspectBackup(text);
+      const candidate = parseState(JSON.parse(text).state, true);
+      await this.storage.write(JSON.stringify(candidate));
+      this.state = candidate;
+    });
+    this.queue = job.catch(() => undefined);
+    return job;
   }
   request(path: string, method = 'GET', body: Row = {}): Promise<any> {
     const job = this.queue.then(async () => {
@@ -62,11 +135,10 @@ export class LocalStore {
     const url = new URL(path, 'https://jb.local');
     const [name, uuid, relation, relationUuid] = url.pathname.replace(/^\/api/, '').split('/').filter(Boolean);
     if (name === 'users' && uuid === 'me' && method === 'GET') return state.user;
-    if (name === 'auth' && uuid === 'logout' && method === 'POST') return { ok: true };
     if (name === 'auth' || name === 'share-invites' || relation === 'members') {
-      throw new LocalApiError('Contas e compartilhamento entre usuários precisam do servidor e não estão disponíveis nesta demo local.', 501);
+      throw new LocalApiError('Esta versão funciona sem contas ou compartilhamento entre usuários.', 405);
     }
-    if (!collections.includes(name as Collection)) throw new LocalApiError('Recurso indisponível na demo.', 404);
+    if (!collections.includes(name as Collection)) throw new LocalApiError('Recurso não encontrado.', 404);
     const collection = name as Collection;
     const rows = state.tables[collection];
     const existing = uuid ? rows.find(row => row.uuid === uuid) : undefined;
@@ -84,7 +156,7 @@ export class LocalStore {
           return existing;
         }
       }
-      throw new LocalApiError('Operação indisponível na demo.', 501);
+      throw new LocalApiError('Operação não suportada.', 405);
     }
     if (method === 'GET') {
       if (existing) return existing;
@@ -95,7 +167,11 @@ export class LocalStore {
     if (collection === 'work-events' || collection === 'notifications') throw new LocalApiError('Recurso somente para leitura.', 405);
     if (method === 'DELETE' && existing) {
       state.tables[collection] = rows.filter(row => row.uuid !== uuid);
-      if (collection === 'attachments') state.tables['work-events'] = state.tables['work-events'].filter(event => event.metadata?.attachmentUuid !== uuid);
+      if (collection === 'attachments') {
+        state.tables['work-events'] = state.tables['work-events'].filter(event => event.metadata?.attachmentUuid !== uuid);
+        for (const work of state.tables.works) if (work.coverImageUrl === existing.publicUrl) work.coverImageUrl = '';
+        for (const expense of state.tables.expenses) if (expense.uploadUrl === existing.publicUrl) expense.uploadUrl = '';
+      }
       if (collection === 'works') {
         for (const key of ['expenses', 'revenues', 'tasks', 'attachments', 'work-events'] as Collection[]) state.tables[key] = state.tables[key].filter(row => row.workUuid !== uuid);
         for (const group of state.tables.groups) group.works = group.works.filter((row: Row) => row.uuid !== uuid);
@@ -119,17 +195,15 @@ export class LocalStore {
     };
     const payload = Object.fromEntries(Object.entries(body).filter(([key]) => allowed[collection].includes(key)));
     const row: Row = { ...(existing ?? { ...defaults[collection], uuid: crypto.randomUUID(), ownerUserUuid: state.user.uuid, createdAt: now }), ...payload, updatedAt: now };
-    if (['works', 'groups', 'expenses', 'revenues'].includes(collection) && !String(row.name ?? '').trim()) throw new LocalApiError('Informe um nome.');
-    if (collection === 'tasks' && !String(row.title ?? '').trim()) throw new LocalApiError('Informe um título.');
-    if (['expenses', 'revenues'].includes(collection) && (!Number.isFinite(row.amount) || row.amount <= 0 || !row.workUuid)) throw new LocalApiError('Informe uma obra e um valor positivo.');
     if (row.workUuid && !state.tables.works.some(work => work.uuid === row.workUuid)) throw new LocalApiError('Obra não encontrada.', 404);
     if (collection === 'tasks') row.workName = state.tables.works.find(work => work.uuid === row.workUuid)?.name ?? null;
     if (collection === 'attachments' && (!existing || payload.dataUrl)) {
       if (typeof row.dataUrl !== 'string' || !/^data:(image\/(png|jpeg|webp|gif)|application\/pdf);base64,/.test(row.dataUrl)) throw new LocalApiError('Use uma imagem PNG, JPEG, WebP, GIF ou PDF.');
-      if (row.dataUrl.length > 8 * 1024 * 1024) throw new LocalApiError('Arquivo muito grande para a demo (máximo aproximado: 6 MB).');
+      if (row.dataUrl.length > 8 * 1024 * 1024) throw new LocalApiError('Arquivo muito grande (máximo aproximado: 6 MB por anexo).');
       row.publicUrl = row.dataUrl; row.filename = row.uuid; row.mimeType = row.dataUrl.slice(5, row.dataUrl.indexOf(';')); row.size = Math.floor(row.dataUrl.split(',')[1].length * 3 / 4);
       delete row.dataUrl;
     }
+    validateRecord(collection, row);
     if (existing) rows[rows.indexOf(existing)] = row;
     else rows.unshift(row);
     if (collection === 'works') {

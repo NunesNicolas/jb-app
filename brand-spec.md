@@ -10,5 +10,5 @@ Sem redesign: cores, tipografia, espaçamentos, raios, sombras e componentes vê
 - Modo: extensão; fidelidade à marca 10/10; variação visual 1/10; movimento 1/10;
   densidade 7/10; dependência de assets 4/10.
 - Uso: gestão de obras no celular; preservar hierarquia, rótulos e navegação.
-- Exceções explícitas: entrada da demo, indicador de dados locais, endereço manual e lista offline.
+- Exceções explícitas: entrada direta nas obras, dados e backup, endereço manual e lista offline.
 - As áreas seguras do celular recebem ajustes apenas no CSS do app.

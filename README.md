@@ -1,13 +1,14 @@
-# JB App — Capacitor
+# JB App — standalone local
 
-Aplicativo Android/iOS com frontend empacotado e demo local. Não usa Expo,
-React Native, servidor Next.js ou `server.url` para abrir as telas.
+Aplicativo Android/iOS com Capacitor, funcional sem cadastro, login, nuvem ou API
+remota. Abre diretamente nas obras. A primeira instalação começa com banco vazio;
+os registros criados pelo usuário são persistentes e reais.
 
-## Preparar e executar
+## Desenvolvimento
 
-Requisitos: Node.js 22.12+ (ou versão suportada pelo Vite 8), npm e os diretórios
-`jb-app` e `jb-web-frontend` lado a lado. As telas são importadas do frontend;
-não copie nem mantenha uma segunda versão delas no app.
+Requisitos: Node.js 22.12+ compatível com Vite 8, npm e os diretórios `jb-app` e
+`jb-web-frontend` lado a lado. As telas, componentes, estilos e assets vêm do
+frontend original, sem cópias para manter separadamente.
 
 ```powershell
 cd H:\JB\jb-app
@@ -15,90 +16,96 @@ npm ci
 npm run dev
 ```
 
-Abra a URL mostrada pelo Vite. Clique em **Entrar na demonstração**.
-No navegador, a persistência usa IndexedDB; no Android/iOS instalado, usa SQLite.
-O servidor Vite serve somente para desenvolvimento/prévia e não é necessário
-no aplicativo compilado.
+Abra a URL indicada pelo Vite. A prévia usa IndexedDB. No aplicativo instalado,
+os dados ficam no SQLite. O servidor Vite só é necessário para desenvolvimento.
 
-## Gerar o pacote web e sincronizar os projetos nativos
+## Funcionalidades locais
+
+- Cadastro, edição e exclusão de obras; orçamento, situação e capa.
+- Tarefas, responsáveis informativos, prazos, prioridades e movimentação de status.
+- Despesas e receitas, totais, relatórios e calendário baseados nos registros locais.
+- Empresas para organizar obras, sem contas, membros online ou permissões remotas.
+- Fotos de progresso e anexos PNG/JPEG/WebP/GIF/PDF (até aproximadamente 6 MB por anexo).
+- Importação/exportação CSV de despesas.
+- Endereços digitados manualmente e listagem de localizações, sem geocodificação ou
+  tiles de mapa externos.
+- Exportação e restauração de backup completo, incluindo anexos, em **Dados e backup**.
+
+O acesso ao backup está no painel de obras e na navegação lateral. A importação
+valida o arquivo e mostra as quantidades antes da confirmação de substituição.
+Arquivos de backup aceitos têm até 100 MB. A exportação de arquivos no celular usa
+o seletor do sistema; o usuário escolhe onde salvar. Não há envio automático.
+Guarde o backup fora da área interna do app, especialmente antes de desinstalar.
+
+## Arquitetura
+
+- `vite.config.ts`: aliases para reutilizar as telas Next/React como aplicação local.
+- `src/compat`: implementa os recursos de Link, Head, dynamic e router usados hoje.
+- `src/main.tsx`: rotas hash e carregamento local dos dados das páginas. Não roda
+  servidor Next nem rotas HTTP de backend no celular.
+- `src/data/local-fetch.ts`: as chamadas `/api/*` que já existem nas telas são
+  interceptadas dentro do processo e atendidas pelo banco local, sem requisição HTTP.
+  Destinos externos são bloqueados. A política de conteúdo do build também restringe
+  conexões e recursos à origem local.
+- `src/data/store.ts`: regras de validação, CRUD, referências, histórico, migração
+  versionada e backup. Não existem usuário remoto, senha ou token de autenticação;
+  uma identidade interna do aparelho mantém os contratos de dados do frontend.
+- `src/data/sqlite-storage.ts`: snapshots JSON em blocos pequenos no SQLite,
+  substituídos em uma transação. Isso evita linhas grandes com fotos no Android.
+  A memória só é atualizada depois da persistência bem-sucedida.
+- `src/save-file.ts`: exportação nativa por Filesystem/Share, sem backend.
+- `@/lib/runtime`: mantém a versão web com contas e recursos online; o app substitui
+  essa configuração para mostrar somente os fluxos locais.
+
+Os nomes internos históricos `jb_demo`/`jb-demo` foram mantidos exclusivamente
+para preservar bancos já existentes. A migração v1 → v2 não apaga registros,
+inclusive exemplos antigos que possam ter sido editados. Instalações novas não
+recebem exemplos; registros antigos podem ser removidos pelos controles normais.
+
+O estado ainda é carregado em memória, incluindo anexos. Grandes acervos exigirão
+armazenamento separado de arquivos e consultas paginadas. O banco não tem criptografia
+adicional implementada. Backups JSON contêm os dados e anexos do usuário.
+
+## Build e sincronização
 
 ```powershell
 npm run sync
 ```
 
-Esse comando verifica TypeScript, gera `dist` e copia os arquivos para Android/iOS.
-Os diretórios `android` e `ios` já estão gerados. Não execute `cap add` novamente.
+Verifica TypeScript, gera `dist` e copia os assets para os projetos Android/iOS.
+Não configure `server.url`: o frontend é empacotado no aplicativo. Mudanças nas
+telas compartilhadas exigem novo build/sync para chegar ao app instalado.
 
 ### Android
 
-Instale/configure Android Studio, Android SDK 36 e JDK 21. Verifique que
-`JAVA_HOME` aponta para o JDK 21 e que `ANDROID_HOME` aponta para o SDK (ou configure
-`sdk.dir` em `android/local.properties`). O Java no PATH e o `JAVA_HOME` podem diferir.
+Configure Android Studio, Android SDK 36 e JDK 21. `JAVA_HOME` deve apontar para
+o JDK 21; `ANDROID_HOME` ou `android/local.properties` deve apontar para o SDK.
 
 ```powershell
 npm run sync
 npm run android
 ```
 
-No Android Studio, gere o APK de debug ou execute em aparelho/emulador. Pelo terminal:
+No Android Studio, execute em aparelho/emulador ou gere um APK. Pelo terminal:
 
 ```powershell
 cd android
 .\gradlew.bat assembleDebug
 ```
 
-Saída esperada: `android/app/build/outputs/apk/debug/app-debug.apk`.
-O APK debug serve para demonstração; distribuição em loja exige assinatura de release.
+Saída: `android/app/build/outputs/apk/debug/app-debug.apk`.
 
 ### iOS
 
-Em um Mac com Xcode e ferramentas de desenvolvimento configuradas, mantenha os dois
-diretórios lado a lado, execute `npm ci`, `npm run sync` e `npm run ios`.
-Selecione a equipe de assinatura no Xcode antes de instalar em um iPhone.
-O projeto usa Swift Package Manager. Compilação/assinatura iOS não é feita no Windows.
+Em Mac com Xcode, mantenha os dois diretórios lado a lado e execute `npm ci`,
+`npm run sync` e `npm run ios`. Configure a equipe de assinatura no Xcode.
+Os plugins usam Swift Package Manager. Compilação iOS exige macOS/Xcode.
 
-## Reutilização do frontend
+Identificador atual: `com.jbmanagement.app`. Nome: `JB Management`. Ícones e splash
+nativos ainda são os padrões do Capacitor; as telas usam o logo JB original.
+Revise identificador, assets e assinatura antes de distribuir em lojas.
 
-- `vite.config.ts`: importa páginas, componentes, estilos e `public` diretamente de
-  `../jb-web-frontend`. Não altera o modo de build do site.
-- `src/compat`: implementa somente os recursos de Link, Head, dynamic e router usados
-  hoje pelas telas. Novos recursos do Next precisam ser avaliados antes de reutilizar.
-- `src/main.tsx`: usa rotas hash e executa os carregadores existentes no cliente,
-  redirecionando `requestBackend` para o adaptador local. Não executa SSR nem API Routes.
-- `src/data/api.ts`: atende as chamadas relativas `/api/*` localmente. Não envia
-  dados da demo ao backend. Uma rota sem suporte retorna um erro explícito.
-- `src/data/storage.ts`: SQLite em Android/iOS, IndexedDB apenas na prévia web.
-- A única adaptação compartilhada nas telas permite uma URL local nos metadados
-  de fotos de progresso; o endereço original da API continua como fallback no site.
-
-O aplicativo funciona em runtime sem o código-fonte web, pois ele é incluído no build.
-Para desenvolver/compilar, o diretório irmão é obrigatório. Mudanças no frontend
-exigem novo build e sincronização para chegar ao app instalado.
-
-## Escopo da demo
-
-- Entrada local identificada como demonstração, sem conta real.
-- Obra, tarefa e despesa fictícias iniciais, criadas uma única vez.
-- Obras, tarefas, despesas, receitas e grupos locais; relatórios e calendário
-  consomem os mesmos dados.
-- Anexos de imagem/PDF locais, com limite aproximado de 6 MB por arquivo.
-- Endereço digitado manualmente e lista de localizações em lugar de mapa online.
-- Sair da demo retorna à entrada e mantém os dados.
-- Contas, membros, convites, links públicos e sincronização entre aparelhos
-  não estão implementados; as operações retornam mensagem de indisponibilidade.
-
-O SQLite desta primeira demo guarda o estado JSON versionado em uma tabela
-`app_state`, com gravações serializadas. É uma implementação pequena para dados de
-demonstração, não um esquema relacional final nem um sistema de sincronização.
-Anexos também ficam no estado; grandes volumes exigirão arquivos separados e migração.
-Não existe autenticação, criptografia de banco ou backup/exportação implementados.
-Desinstalar/limpar dados pode apagar o conteúdo local. Use dados fictícios.
-
-Identificador inicial: `com.jbmanagement.app`. Nome: `JB Management`.
-Ícones e splash nativos ainda usam os assets padrão do Capacitor; o logo JB das telas
-vem do frontend. Revise identificador, ícones, splash e assinatura antes da distribuição.
-
-## Verificações
+## Validação
 
 ```powershell
 npm test
@@ -106,16 +113,19 @@ npm run check:screens
 npm run build
 ```
 
-- Testes de dados: persistência/reabertura, gravações simultâneas, falha de gravação,
-  integridade de referências, exclusão, anexos e banco incompatível.
-- `check:screens`: carrega e renderiza as nove telas compartilhadas usando os dados
-  locais; verifica a fronteira de compatibilidade, não substitui teste em dispositivo.
-- Build TypeScript/Vite e sincronização Capacitor.
+Os testes cobrem banco vazio, CRUD, persistência, concorrência, validação,
+migração, backup/restauração, falhas de gravação, anexos e bloqueio de rede.
+O adaptador SQLite é testado com SQLite real do Node, incluindo Unicode, snapshots
+grandes, migração e rollback. Isso não testa a ponte nativa do Capacitor.
 
-A compilação nativa e o SQLite real precisam de validação em aparelho/emulador.
-Nesta preparação, os projetos foram gerados/sincronizados, mas nenhum APK/IPA foi
-compilado e não houve teste em dispositivo. Não foi localizado Android SDK no ambiente.
+`check:screens` renderiza as telas compartilhadas com estados vazios e dados de
+teste, verifica a ausência de login/convites e inclui a página de backup.
 
-Para validar no aparelho: instalar, abrir a demo, ativar modo avião, cadastrar uma obra
-com endereço manual, criar/mover tarefa, registrar despesa, anexar foto, fechar/reabrir
-e confirmar persistência. Conferir também voltar do Android, teclado e áreas seguras.
+A compilação APK/IPA, o SQLite via plugin e o seletor de arquivos precisam ser
+validados no aparelho. O Android SDK não foi encontrado no ambiente de preparação;
+nenhum binário nativo foi compilado aqui.
+
+Roteiro no aparelho: instalar → modo avião → criar obra e empresa → lançar despesas
+e receitas → criar/mover tarefa → anexar foto → fechar/reabrir → conferir dados →
+exportar backup → restaurar em outra instalação. Conferir teclado, voltar do Android,
+arquivos CSV, PDFs, fotos e áreas seguras.

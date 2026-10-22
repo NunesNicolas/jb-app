@@ -1,5 +1,6 @@
 import { LocalApiError, LocalStore } from './store';
 import { openStorage, type StorageAdapter } from './storage';
+import { createLocalFetch } from './local-fetch';
 
 let store: LocalStore;
 export async function initializeData(storage?: StorageAdapter) {
@@ -10,21 +11,11 @@ export async function requestBackend<T>(path: string, init?: RequestInit): Promi
   return store.request(path, init?.method ?? 'GET', typeof init?.body === 'string' ? JSON.parse(init.body) : {});
 }
 export { LocalApiError as BackendRequestError };
+export function exportBackup() { return store.exportBackup(); }
+export function inspectBackup(text: string) { return store.inspectBackup(text); }
+export function restoreBackup(text: string) { return store.restoreBackup(text); }
 
 // Keep the web screens' /api calls local. Never fall through to a remote backend.
 export function installLocalApi() {
-  const originalFetch = window.fetch.bind(window);
-  window.fetch = async (input, init) => {
-    const url = new URL(input instanceof Request ? input.url : String(input), location.origin);
-    if (url.origin !== location.origin || !url.pathname.startsWith('/api/')) return originalFetch(input, init);
-    try {
-      const method = init?.method ?? (input instanceof Request ? input.method : 'GET');
-      const raw = init?.body ?? (input instanceof Request && method !== 'GET' ? await input.clone().text() : undefined);
-      const body = typeof raw === 'string' && raw ? JSON.parse(raw) : {};
-      const value = await store.request(url.pathname + url.search, method, body);
-      return Response.json(value);
-    } catch (error) {
-      return Response.json({ message: error instanceof Error ? error.message : 'Não foi possível salvar os dados.' }, { status: error instanceof LocalApiError ? error.statusCode : 500 });
-    }
-  };
+  window.fetch = createLocalFetch(store, window.fetch.bind(window), location.href);
 }

@@ -1,5 +1,6 @@
 import { Capacitor } from '@capacitor/core';
 import { CapacitorSQLite, SQLiteConnection } from '@capacitor-community/sqlite';
+import { sqliteStorage } from './sqlite-storage';
 
 export interface StorageAdapter {
   read(): Promise<string | null>;
@@ -9,18 +10,12 @@ export interface StorageAdapter {
 export async function openStorage(): Promise<StorageAdapter> {
   if (Capacitor.isNativePlatform()) {
     const sqlite = new SQLiteConnection(CapacitorSQLite);
+    // Retain the database name so existing installations keep their data.
     const db = await sqlite.createConnection('jb_demo', false, 'no-encryption', 1, false);
     await db.open();
     await db.execute('CREATE TABLE IF NOT EXISTS app_state (id INTEGER PRIMARY KEY CHECK (id = 1), value TEXT NOT NULL);');
-    return {
-      async read() {
-        const result = await db.query('SELECT value FROM app_state WHERE id = 1');
-        return result.values?.[0]?.value ?? null;
-      },
-      async write(value) {
-        await db.run('INSERT INTO app_state (id, value) VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET value = excluded.value', [value]);
-      },
-    };
+    await db.execute('CREATE TABLE IF NOT EXISTS app_state_chunks (id INTEGER PRIMARY KEY, value TEXT NOT NULL);');
+    return sqliteStorage(db);
   }
   // Browser preview only. The installed Android/iOS app always uses SQLite.
   const db = await new Promise<IDBDatabase>((resolve, reject) => {

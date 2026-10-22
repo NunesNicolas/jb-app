@@ -5,6 +5,8 @@ import { App as NativeApp } from '@capacitor/app';
 import { initializeData, installLocalApi } from './data/api';
 import { navigate, RouterContext } from './compat/router';
 import Link from './compat/link';
+import Settings from './pages/Settings';
+import { installNativeFileLinks } from './save-file';
 import '@/styles/globals.css';
 import '@/styles/usability.css';
 import '@/styles/select.css';
@@ -29,16 +31,6 @@ const routes = Object.entries(pages).map(([file, load]) => {
   return { route, load, pattern: new RegExp(`^${route.replace(/\[([^\]]+)\]/g, '([^/]+)')}$`), keys: [...route.matchAll(/\[([^\]]+)\]/g)].map(match => match[1]) };
 }).sort((a, b) => a.keys.length - b.keys.length);
 
-function Welcome() {
-  return <main className="auth-page">
-    <div className="brand auth-brand"><span className="brand-mark"><img src="/jblogo.png" alt="" /></span><span className="brand-copy"><strong>JB Management</strong><small>Gestão de obras</small></span></div>
-    <section className="auth-card"><div className="auth-heading"><span className="eyebrow">Demo local</span><h1>Seu JB no celular</h1><p>Explore as telas com dados de demonstração. As alterações ficam salvas neste aparelho, sem precisar de internet.</p></div>
-      <Link className="button primary" href="/dashboard">Entrar na demonstração</Link>
-      <p className="muted">Os dados são fictícios. Não há login, sincronização ou compartilhamento com outras pessoas nesta versão. Desinstalar o app pode apagar os dados locais.</p>
-    </section>
-  </main>;
-}
-
 class ErrorBoundary extends Component<{ children: ReactNode }, { error: string }> {
   state = { error: '' };
   static getDerivedStateFromError(error: Error) { return { error: error.message }; }
@@ -61,15 +53,16 @@ function Application() {
     async function load() {
       const url = new URL(asPath, 'https://jb.local');
       if (['/', '/login', '/register'].includes(url.pathname)) {
-        setScreen({ Page: Welcome, props: {}, route: '/', query: {} }); return;
+        await navigate('/dashboard', true); return;
       }
+      if (url.pathname === '/settings') { setScreen({ Page: Settings, props: {}, route: '/settings', query: {} }); return; }
       const route = routes.find(item => item.pattern.test(url.pathname));
-      if (!route) { setError('Esta tela não está disponível na demo local.'); return; }
+      if (!route) { setError('Página não encontrada.'); return; }
       const match = url.pathname.match(route.pattern)!;
       const params = Object.fromEntries(route.keys.map((key, index) => [key, decodeURIComponent(match[index + 1])]));
       const module = await route.load();
       // Existing loaders are plain functions here, with their backend import redirected to SQLite.
-      const result = module.getServerSideProps ? await module.getServerSideProps({ req: { cookies: { auth_token: 'local-demo' } }, params, query: Object.fromEntries(url.searchParams) }) : { props: {} };
+      const result = module.getServerSideProps ? await module.getServerSideProps({ req: { cookies: { auth_token: 'local-device' } }, params, query: Object.fromEntries(url.searchParams) }) : { props: {} };
       if (cancelled) return;
       if (result.redirect) { await navigate(result.redirect.destination, true); return; }
       if (result.notFound) throw new Error('Registro não encontrado.');
@@ -80,7 +73,6 @@ function Application() {
     return () => { cancelled = true; };
   }, [asPath, revision]);
   return <>
-    <div className="demo-banner">Demo local · Dados salvos neste aparelho</div>
     {error ? <main className="auth-page"><section className="auth-card"><p role="alert">{error}</p><Link href="/dashboard">Voltar às obras</Link></section></main> : screen ?
       <RouterContext.Provider value={{ pathname: screen.route, asPath, query: screen.query, push: href => navigate(href), replace: href => navigate(href, true) }}>
         <button className="skip-link" onClick={() => { const heading = document.querySelector('h1'); if (heading) { heading.tabIndex = -1; heading.focus(); } }}>Pular para o conteúdo</button>
@@ -92,6 +84,7 @@ function Application() {
 async function start() {
   await initializeData();
   installLocalApi();
+  installNativeFileLinks();
   if (Capacitor.getPlatform() === 'android') {
     await NativeApp.addListener('backButton', () => {
       const path = location.hash.slice(1);
