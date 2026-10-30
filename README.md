@@ -101,9 +101,16 @@ Em Mac com Xcode, mantenha os dois diretórios lado a lado e execute `npm ci`,
 `npm run sync` e `npm run ios`. Configure a equipe de assinatura no Xcode.
 Os plugins usam Swift Package Manager. Compilação iOS exige macOS/Xcode.
 
-Identificador atual: `com.jbmanagement.app`. Nome: `JB Management`. Ícones e splash
-nativos ainda são os padrões do Capacitor; as telas usam o logo JB original.
-Revise identificador, assets e assinatura antes de distribuir em lojas.
+Identificador atual: `com.jbmanagement.app`. Nome: `JB Management`. Os ícones de
+Android e iOS usam o logo JB original sobre fundo branco. O Android inclui as
+cinco densidades, versão circular e foreground adaptativo com margem segura;
+o iOS usa PNG opaco de 1024 px. As telas de splash ainda são as originais.
+Para regenerar os ícones, execute `node scripts/generate-icons.cjs`; o script
+reutiliza o Sharp instalado no frontend e valida tamanhos, transparência e margem.
+Revise identificador e assinatura antes de distribuir em lojas.
+
+Veja [INSTALAR-NO-CELULAR.md](INSTALAR-NO-CELULAR.md) para instalar em um aparelho
+Android ou iPhone. `npm run sync` prepara os projetos, mas não gera APK/IPA.
 
 ## Validação
 
