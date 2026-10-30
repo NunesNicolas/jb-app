@@ -113,6 +113,31 @@ npm run check:screens
 npm run build
 ```
 
+Para repetir os fluxos completos no navegador, execute `npm run test:e2e`.
+O comando faz o build, abre um servidor temporário na porta 5175 e testa cadastro
+de obra, despesas, movimentação de tarefas, anexos e restauração em desktop e
+celular (390 px). Reutiliza Playwright instalado no `jb-web-frontend`; no Windows
+usa Edge. Em outros sistemas, instale o Chromium do Playwright no frontend.
+`PW_CHANNEL` permite escolher outro canal instalado. Os perfis são isolados e
+os registros são fictícios. Capturas ficam em `output/playwright`, ignorado pelo Git.
+
+A tela de backup registra a data dos dados exportados somente após a confirmação
+“Já salvei o arquivo”. Abrir ou cancelar o compartilhamento não registra uma cópia
+salva. Alterações posteriores à exportação continuam pendentes. O lembrete aparece
+no painel quando existem registros sem cópia confirmada, ou alterações após uma
+cópia com sete dias ou mais; pode ser adiado por um dia. Restaurar um arquivo
+reinicia esse histórico no aparelho, preservando os registros importados.
+
+Testes de atualização abrem snapshots das versões 1 e 2 e comparam as coleções;
+o teste de navegador também reabre uma base IndexedDB anterior. Isso simula a
+compatibilidade dos dados, mas não substitui atualizar um APK/IPA instalado.
+
+`check-mobile-recovery.cjs`, incluído em `test:e2e`, verifica erros de gravação
+durante confirmação, adiamento e restauração do backup. Confere persistência
+após falha, cancelamento e nova tentativa. Também salva um gasto em uma viewport
+de 640 × 360 para verificar a rolagem do formulário. O teclado nativo ainda
+precisa ser testado em aparelho físico.
+
 Os testes cobrem banco vazio, CRUD, persistência, concorrência, validação,
 migração, backup/restauração, falhas de gravação, anexos e bloqueio de rede.
 O adaptador SQLite é testado com SQLite real do Node, incluindo Unicode, snapshots

@@ -4,7 +4,10 @@ import type { StorageAdapter } from './storage';
 // All operations are local; there is no authentication or remote synchronization.
 type Row = Record<string, any>;
 type Collection = 'works' | 'tasks' | 'expenses' | 'revenues' | 'groups' | 'attachments' | 'work-events' | 'notifications';
-type State = { version: 2; user: Row; tables: Record<Collection, Row[]> };
+type BackupHistory = { revision: number; savedRevision: number; savedAt: string | null; remindAfter: number };
+type State = { version: 2; user: Row; tables: Record<Collection, Row[]>; backupHistory?: BackupHistory };
+const emptyBackupHistory = (): BackupHistory => ({ revision: 0, savedRevision: -1, savedAt: null, remindAfter: 0 });
+export type BackupStatus = { savedAt: string | null; hasChanges: boolean; reminderDue: boolean };
 const collections: Collection[] = ['works', 'tasks', 'expenses', 'revenues', 'groups', 'attachments', 'work-events', 'notifications'];
 export class LocalApiError extends Error {
   constructor(message: string, public statusCode = 400) { super(message); }
@@ -65,6 +68,10 @@ function parseState(value: unknown, checkRecords = false): State {
   }
   const migrated = structuredClone(state);
   migrated.version = 2;
+  const history = migrated.backupHistory;
+  if (!history || !Number.isSafeInteger(history.revision) || history.revision < 0 || !Number.isSafeInteger(history.savedRevision) || history.savedRevision < -1 || history.savedRevision > history.revision || (history.savedAt !== null && !Number.isFinite(Date.parse(history.savedAt))) || !Number.isFinite(history.remindAfter)) {
+    migrated.backupHistory = emptyBackupHistory();
+  }
   // Retain identity and every existing record, including edits made in the earlier build.
   migrated.user = { ...migrated.user, name: 'Neste aparelho', email: '', profile: 'admin' };
   if (checkRecords) {
@@ -85,6 +92,7 @@ function parseState(value: unknown, checkRecords = false): State {
 export class LocalStore {
   private state!: State;
   private queue: Promise<unknown> = Promise.resolve();
+  private pendingBackup: { text: string; revision: number; at: string } | null = null;
   constructor(private storage: StorageAdapter) {}
   async initialize() {
     const raw = await this.storage.read();
@@ -99,7 +107,39 @@ export class LocalStore {
   }
   async exportBackup(): Promise<string> {
     await this.queue;
-    return JSON.stringify({ format: 'jb-local-backup', version: 1, exportedAt: new Date().toISOString(), state: this.state });
+    const at = new Date().toISOString();
+    const text = JSON.stringify({ format: 'jb-local-backup', version: 1, exportedAt: at, state: this.state });
+    this.pendingBackup = { text, revision: this.state.backupHistory?.revision ?? 0, at };
+    return text;
+  }
+  async backupStatus(now = Date.now()): Promise<BackupStatus> {
+    await this.queue;
+    const history = this.state.backupHistory ?? emptyBackupHistory();
+    const hasChanges = history.revision > history.savedRevision;
+    const hasRecords = collections.some(key => this.state.tables[key].length > 0);
+    return { savedAt: history.savedAt, hasChanges, reminderDue: hasRecords && hasChanges && now >= history.remindAfter && (!history.savedAt || now - Date.parse(history.savedAt) >= 7 * 86400000) };
+  }
+  confirmBackup(text: string): Promise<void> {
+    return this.updateBackupHistory(history => {
+      if (!this.pendingBackup || this.pendingBackup.text !== text) throw new Error('Exporte um novo backup antes de confirmar.');
+      history.savedAt = this.pendingBackup.at;
+      history.savedRevision = this.pendingBackup.revision;
+      history.remindAfter = 0;
+    });
+  }
+  postponeBackupReminder(): Promise<void> {
+    return this.updateBackupHistory(history => { history.remindAfter = Date.now() + 86400000; });
+  }
+  private updateBackupHistory(update: (history: BackupHistory) => void): Promise<void> {
+    const job = this.queue.then(async () => {
+      const candidate = structuredClone(this.state);
+      candidate.backupHistory ??= emptyBackupHistory();
+      update(candidate.backupHistory);
+      await this.storage.write(JSON.stringify(candidate));
+      this.state = candidate;
+    });
+    this.queue = job.catch(() => undefined);
+    return job;
   }
   inspectBackup(text: string) {
     const backup = JSON.parse(text);
@@ -111,8 +151,11 @@ export class LocalStore {
     const job = this.queue.then(async () => {
       this.inspectBackup(text);
       const candidate = parseState(JSON.parse(text).state, true);
+      // An imported file does not establish backup history on this installation.
+      candidate.backupHistory = emptyBackupHistory();
       await this.storage.write(JSON.stringify(candidate));
       this.state = candidate;
+      this.pendingBackup = null;
     });
     this.queue = job.catch(() => undefined);
     return job;
@@ -122,6 +165,8 @@ export class LocalStore {
       const candidate = structuredClone(this.state);
       const result = this.execute(candidate, path, method.toUpperCase(), body);
       if (method.toUpperCase() !== 'GET') {
+        candidate.backupHistory ??= emptyBackupHistory();
+        candidate.backupHistory.revision++;
         // Commit in memory only after durable storage succeeds.
         await this.storage.write(JSON.stringify(candidate));
         this.state = candidate;

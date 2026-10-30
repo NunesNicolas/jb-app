@@ -6,6 +6,7 @@ import { initializeData, installLocalApi } from './data/api';
 import { navigate, RouterContext } from './compat/router';
 import Link from './compat/link';
 import Settings from './pages/Settings';
+import BackupReminder from './BackupReminder';
 import { installNativeFileLinks } from './save-file';
 import '@/styles/globals.css';
 import '@/styles/usability.css';
@@ -76,7 +77,7 @@ function Application() {
     {error ? <main className="auth-page"><section className="auth-card"><p role="alert">{error}</p><Link href="/dashboard">Voltar às obras</Link></section></main> : screen ?
       <RouterContext.Provider value={{ pathname: screen.route, asPath, query: screen.query, push: href => navigate(href), replace: href => navigate(href, true) }}>
         <button className="skip-link" onClick={() => { const heading = document.querySelector('h1'); if (heading) { heading.tabIndex = -1; heading.focus(); } }}>Pular para o conteúdo</button>
-        <div id="page-content"><screen.Page key={`${asPath}:${revision}`} {...screen.props} /></div>
+        <div id="page-content">{screen.route === '/dashboard' && <BackupReminder key={`backup:${revision}`} />}<screen.Page key={`${asPath}:${revision}`} {...screen.props} /></div>
       </RouterContext.Provider> : <p className="local-loading" role="status">Abrindo dados locais…</p>}
   </>;
 }

@@ -31,3 +31,4 @@ key.properties
 *.ipa
 *.xcarchive/
 *.dSYM/
+output/playwright/
